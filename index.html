@@ -4,7 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Presensi LMC" />
   <meta name="theme-color" content="#1565c0" />
   <title>Presensi LMC — iPhone</title>
@@ -12,20 +11,18 @@
   <link rel="manifest" href="manifest.json" />
 </head>
 <body>
-  <!-- LOGIN -->
   <div id="screen-login" class="card">
     <h1>Presensi LMC</h1>
-    <p class="sub">Versi web untuk iPhone — masuk &amp; pulang</p>
+    <p class="sub">Versi web iPhone — masuk &amp; pulang</p>
     <div id="login-error" class="error hidden"></div>
     <label>Username</label>
-    <input id="username" autocomplete="username" placeholder="username" />
+    <input id="username" autocomplete="username" />
     <label>Password</label>
-    <input id="password" type="password" autocomplete="current-password" placeholder="password" />
+    <input id="password" type="password" autocomplete="current-password" />
     <button class="btn-primary" id="btn-login">Masuk</button>
-    <small class="hint">Khusus karyawan. Admin tetap pakai app Android.</small>
+    <small class="hint">Khusus karyawan. Admin tetap di Android.</small>
   </div>
 
-  <!-- HOME -->
   <div id="screen-home" class="card hidden">
     <div class="user-bar">
       <div>
@@ -34,27 +31,32 @@
       </div>
       <button class="btn-outline" id="btn-logout" style="width:auto;padding:8px 14px;margin:0">Keluar</button>
     </div>
-    <button class="btn-masuk" id="btn-masuk">Presensi Masuk</button>
-    <button class="btn-pulang" id="btn-pulang">Presensi Pulang</button>
-    <small class="hint">Izinkan kamera &amp; lokasi saat diminta.</small>
+    <p id="info-wajah-web" class="sub"></p>
+    <button type="button" class="btn-outline" id="btn-daftar-wajah">Daftarkan wajah web (wajib sekali)</button>
+    <button type="button" class="btn-masuk" id="btn-masuk">Presensi Masuk</button>
+    <button type="button" class="btn-pulang" id="btn-pulang">Presensi Pulang</button>
+    <small class="hint">Izinkan kamera &amp; lokasi. Wajah web terpisah dari foto Android.</small>
   </div>
 
-  <!-- KAMERA -->
+  <div id="screen-daftar-wajah" class="card hidden">
+    <h1>Daftar wajah web</h1>
+    <p class="sub">Hadap kamera, wajah jelas — ini hanya untuk iPhone/web</p>
+    <div id="daftar-error" class="error hidden"></div>
+    <video id="video-daftar" playsinline autoplay muted></video>
+    <button class="btn-primary" id="btn-simpan-wajah">Simpan wajah</button>
+    <button class="btn-outline" id="btn-cancel-daftar">Batal</button>
+  </div>
+
   <div id="screen-camera" class="card hidden">
     <h1 id="camera-title">Presensi</h1>
     <p class="sub">Posisikan wajah di tengah, pencahayaan cukup</p>
     <div id="cam-error" class="error hidden"></div>
     <video id="video" playsinline autoplay muted></video>
-    <canvas id="preview" class="hidden"></canvas>
-    <canvas id="work" class="hidden" width="112" height="112"></canvas>
     <button class="btn-primary" id="btn-capture">Ambil Foto &amp; Presensi</button>
     <button class="btn-outline" id="btn-cancel-cam">Batal</button>
-    <div id="proses" class="hidden" style="text-align:center;padding:16px">
-      <p>Memproses…</p>
-    </div>
+    <div id="proses" class="hidden" style="text-align:center;padding:16px"><p>Memproses…</p></div>
   </div>
 
-  <!-- HASIL -->
   <div id="screen-hasil" class="card hidden">
     <h1 id="hasil-judul">Hasil</h1>
     <p id="hasil-pesan" class="sub"></p>
@@ -63,8 +65,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/dist/face-api.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-tflite@0.0.1-alpha.9/dist/tf-tflite.min.js"></script>
   <script src="config.js"></script>
   <script src="app.js"></script>
 </body>

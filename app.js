@@ -226,22 +226,43 @@
   };
 
   // ── Presensi ──
-  $('btn-masuk').onclick = () => mulaiPresensi('masuk');
-  $('btn-pulang').onclick = () => mulaiPresensi('pulang');
+  function bindTap(id, fn) {
+    const el = $(id);
+    if (!el) return;
+    el.style.pointerEvents = 'auto';
+    el.style.cursor = 'pointer';
+    el.disabled = false;
+    const handler = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      fn();
+    };
+    el.onclick = handler;
+    el.ontouchend = handler;
+  }
+
+  bindTap('btn-masuk', () => mulaiPresensi('masuk'));
+  bindTap('btn-pulang', () => mulaiPresensi('pulang'));
 
   async function mulaiPresensi(tipe) {
-    // Web: wajah tidak wajib terdaftar (server paksa skor 100%)
-    tipeAktif = tipe;
-    $('camera-title').textContent = tipe === 'masuk' ? 'Presensi Masuk' : 'Presensi Pulang';
-    setError('cam-error', '');
-    $('btn-capture').classList.remove('hidden');
-    $('proses').classList.add('hidden');
-    show('screen-camera');
     try {
-      await startCamera('video');
-      await loadModels();
+      tipeAktif = tipe;
+      const title = $('camera-title');
+      if (title) title.textContent = tipe === 'masuk' ? 'Presensi Masuk' : 'Presensi Pulang';
+      setError('cam-error', '');
+      const btnCap = $('btn-capture');
+      const proses = $('proses');
+      if (btnCap) btnCap.classList.remove('hidden');
+      if (proses) proses.classList.add('hidden');
+      show('screen-camera');
+      try {
+        await startCamera('video');
+        await loadModels();
+      } catch (e) {
+        setError('cam-error', (e && e.message) || 'Kamera gagal. Izinkan kamera di Settings → Safari.');
+      }
     } catch (e) {
-      setError('cam-error', e.message || 'Kamera gagal');
+      alert('Gagal buka presensi: ' + ((e && e.message) || e));
     }
   }
 
