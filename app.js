@@ -31,7 +31,7 @@
   }
 
   async function api(path, options = {}) {
-    const headers = Object.assign({ apikey: cfg.ANON_KEY }, options.headers || {});
+    const headers = Object.assign({ apikey: cfg.ANON_KEY, 'X-Client': 'web' }, options.headers || {});
     if (token) headers['Authorization'] = 'Bearer ' + token;
     if (options.body && !(options.body instanceof FormData) && typeof options.body === 'string') {
       headers['Content-Type'] = 'application/json';
@@ -226,10 +226,7 @@
   $('btn-pulang').onclick = () => mulaiPresensi('pulang');
 
   async function mulaiPresensi(tipe) {
-    if (!hasWebFace) {
-      alert('Daftarkan wajah web dulu (tombol di bawah).');
-      return;
-    }
+    // Web: wajah tidak wajib terdaftar (server paksa skor 100%)
     tipeAktif = tipe;
     $('camera-title').textContent = tipe === 'masuk' ? 'Presensi Masuk' : 'Presensi Pulang';
     setError('cam-error', '');
