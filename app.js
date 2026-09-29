@@ -31,8 +31,12 @@
   }
 
   async function api(path, options = {}) {
-    const headers = Object.assign({ apikey: cfg.ANON_KEY, 'X-Client': 'web' }, options.headers || {});
+    const headers = Object.assign({ apikey: cfg.ANON_KEY }, options.headers || {});
     if (token) headers['Authorization'] = 'Bearer ' + token;
+    // X-Client hanya untuk checkin (fungsi login/web-face belum allow header ini)
+    if (path === 'checkin' || (typeof path === 'string' && path.startsWith('checkin'))) {
+      headers['X-Client'] = 'web';
+    }
     if (options.body && !(options.body instanceof FormData) && typeof options.body === 'string') {
       headers['Content-Type'] = 'application/json';
     }
