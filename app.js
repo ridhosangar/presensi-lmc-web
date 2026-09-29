@@ -1,4 +1,4 @@
-/* Presensi LMC — web iPhone (masuk / pulang saja) */
+/* Presensi LMC — web iPhone (masuk / pulang) — face crop mirip Android */
 (function () {
   const cfg = window.APP_CONFIG;
   const STORAGE_TOKEN = 'lmc_token';
@@ -10,6 +10,7 @@
   let tipeAktif = 'masuk';
   let stream = null;
   let tfliteModel = null;
+  let faceApiReady = false;
 
   const $ = (id) => document.getElementById(id);
 
@@ -27,11 +28,8 @@
   }
 
   async function api(path, options = {}) {
-    const headers = Object.assign({
-      apikey: cfg.ANON_KEY,
-    }, options.headers || {});
+    const headers = Object.assign({ apikey: cfg.ANON_KEY }, options.headers || {});
     if (token) headers['Authorization'] = 'Bearer ' + token;
-    // Jangan set Content-Type jika body FormData
     if (options.body && !(options.body instanceof FormData)) {
       headers['Content-Type'] = 'application/json';
     }
@@ -44,8 +42,7 @@
     let data = null;
     try { data = text ? JSON.parse(text) : null; } catch (_) { data = { error: text }; }
     if (!res.ok) {
-      const err = (data && (data.error || data.message)) || ('HTTP ' + res.status);
-      throw new Error(err);
+      throw new Error((data && (data.error || data.message)) || ('HTTP ' + res.status));
     }
     return data;
   }
@@ -101,7 +98,7 @@
     setError('cam-error', '');
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+        video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 720 } },
         audio: false,
       });
       const v = $('video');
@@ -119,8 +116,7 @@
       stream.getTracks().forEach((t) => t.stop());
       stream = null;
     }
-    const v = $('video');
-    v.srcObject = null;
+    $('video').srcObject = null;
   }
 
   $('btn-masuk').onclick = () => bukaKamera('masuk');
@@ -133,8 +129,7 @@
     $('proses').classList.add('hidden');
     show('screen-camera');
     await startCamera();
-    // Preload model di background
-    loadModel().catch(() => {});
+    Promise.all([loadModel(), loadFaceApi()]).catch(() => {});
   }
 
   $('btn-cancel-cam').onclick = () => {
@@ -142,41 +137,98 @@
     show('screen-home');
   };
 
-  // ── Model wajah (MobileFaceNet TFLite) ──
+  // ── face-api (deteksi bbox wajah, mirip ML Kit di Android) ──
+  async function loadFaceApi() {
+    if (faceApiReady) return;
+    if (typeof faceapi === 'undefined') return;
+    const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/model';
+    await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+    faceApiReady = true;
+  }
+
   async function loadModel() {
     if (tfliteModel) return tfliteModel;
     if (typeof tflite === 'undefined') {
-      throw new Error('Library TFLite tidak termuat. Coba browser lain / update iOS.');
+      throw new Error('Library TFLite tidak termuat. Update iOS / coba Safari terbaru.');
     }
     await tf.ready();
+    // Set backend
+    try { await tf.setBackend('wasm'); } catch (_) {}
+    try { await tf.setBackend('webgl'); } catch (_) {}
     tfliteModel = await tflite.loadTFLiteModel('mobilefacenet.tflite');
     return tfliteModel;
   }
 
-  /** Ambil frame video → crop tengah persegi → 112x112 → embedding 192 */
-  async function ekstrakEmbeddingDariVideo() {
+  /**
+   * Ambil frame dari video (tanpa mirror) ke canvas full size.
+   * Deteksi wajah → crop + padding → 112x112 → embedding MobileFaceNet.
+   */
+  async function frameToCanvas() {
     const video = $('video');
     const w = video.videoWidth;
     const h = video.videoHeight;
-    if (!w || !h) throw new Error('Kamera belum siap');
+    if (!w || !h) throw new Error('Kamera belum siap, tunggu sebentar');
 
-    const side = Math.min(w, h);
-    const sx = Math.floor((w - side) / 2);
-    const sy = Math.floor((h - side) / 2);
+    const full = document.createElement('canvas');
+    full.width = w;
+    full.height = h;
+    const ctx = full.getContext('2d');
+    // JANGAN mirror untuk model — samakan dengan pipeline Android (bitmap mentah)
+    ctx.drawImage(video, 0, 0, w, h);
+    return full;
+  }
 
-    const work = $('work');
-    const ctx = work.getContext('2d');
-    // mirror selfie → gambar terbalik horizontal biar natural; model tidak wajib mirror
-    ctx.save();
-    ctx.translate(112, 0);
-    ctx.scale(-1, 1);
-    ctx.drawImage(video, sx, sy, side, side, 0, 0, 112, 112);
-    ctx.restore();
+  async function cariBoxWajah(canvas) {
+    // 1) face-api tiny detector
+    try {
+      await loadFaceApi();
+      if (faceApiReady) {
+        const det = await faceapi.detectSingleFace(
+          canvas,
+          new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.4 })
+        );
+        if (det && det.box) {
+          const b = det.box;
+          return { x: b.x, y: b.y, width: b.width, height: b.height };
+        }
+      }
+    } catch (_) { /* lanjut fallback */ }
 
-    const model = await loadModel();
-    const imageData = ctx.getImageData(0, 0, 112, 112);
-    const { data } = imageData;
-    // Float32 [-1, 1] NHWC
+    // 2) Fallback: crop tengah (lebih ketat — 70% sisi pendek)
+    const side = Math.min(canvas.width, canvas.height) * 0.7;
+    return {
+      x: (canvas.width - side) / 2,
+      y: (canvas.height - side) / 2,
+      width: side,
+      height: side,
+    };
+  }
+
+  function cropKe112(sourceCanvas, box) {
+    // Padding ~20% seperti crop wajah yang longgar (mirip ML Kit margin)
+    let { x, y, width, height } = box;
+    const pad = 0.2;
+    const cx = x + width / 2;
+    const cy = y + height / 2;
+    let side = Math.max(width, height) * (1 + pad * 2);
+    side = Math.min(side, sourceCanvas.width, sourceCanvas.height);
+    let left = Math.round(cx - side / 2);
+    let top = Math.round(cy - side / 2);
+    left = Math.max(0, Math.min(left, sourceCanvas.width - side));
+    top = Math.max(0, Math.min(top, sourceCanvas.height - side));
+    side = Math.round(side);
+
+    const out = $('work');
+    const ctx = out.getContext('2d');
+    ctx.clearRect(0, 0, 112, 112);
+    ctx.drawImage(sourceCanvas, left, top, side, side, 0, 0, 112, 112);
+    return out;
+  }
+
+  function canvasKeEmbeddingInput(canvas112) {
+    const ctx = canvas112.getContext('2d');
+    const { data } = ctx.getImageData(0, 0, 112, 112);
+    // Normalisasi [-1, 1] RGB — sama dengan FaceEmbeddingHelper Android
     const input = new Float32Array(1 * 112 * 112 * 3);
     let i = 0;
     for (let p = 0; p < data.length; p += 4) {
@@ -184,34 +236,84 @@
       input[i++] = data[p + 1] / 127.5 - 1;
       input[i++] = data[p + 2] / 127.5 - 1;
     }
-    const inputTensor = tf.tensor4d(input, [1, 112, 112, 3]);
-    const out = model.predict(inputTensor);
-    const arr = await out.data();
+    return tf.tensor4d(input, [1, 112, 112, 3]);
+  }
+
+  function l2Normalize(arr) {
+    let s = 0;
+    for (let i = 0; i < arr.length; i++) s += arr[i] * arr[i];
+    const n = Math.sqrt(s) || 1;
+    return Array.from(arr, (v) => v / n);
+  }
+
+  async function ekstrakEmbedding() {
+    const full = await frameToCanvas();
+    const box = await cariBoxWajah(full);
+    const face112 = cropKe112(full, box);
+    const model = await loadModel();
+    const inputTensor = canvasKeEmbeddingInput(face112);
+    let out = model.predict(inputTensor);
+    // Beberapa build mengembalikan array tensors
+    if (Array.isArray(out)) out = out[0];
+    const data = await out.data();
     inputTensor.dispose();
     if (out.dispose) out.dispose();
-    return Array.from(arr);
+
+    // Juga coba versi mirror horizontal; pilih tidak di server — kirim yang non-mirror dulu.
+    // Jika skor masih rendah, user bisa coba lagi dengan posisi lebih frontal.
+    return l2Normalize(data);
+  }
+
+  /** Versi cadangan: rata-rata embedding non-mirror + mirror (sering menaikkan skor) */
+  async function ekstrakEmbeddingRobust() {
+    const full = await frameToCanvas();
+    const box = await cariBoxWajah(full);
+    const face112 = cropKe112(full, box);
+    const model = await loadModel();
+
+    async function embedFromCanvas(c) {
+      const t = canvasKeEmbeddingInput(c);
+      let out = model.predict(t);
+      if (Array.isArray(out)) out = out[0];
+      const data = await out.data();
+      t.dispose();
+      if (out.dispose) out.dispose();
+      return data;
+    }
+
+    const e1 = await embedFromCanvas(face112);
+
+    // Mirror crop
+    const mir = document.createElement('canvas');
+    mir.width = 112;
+    mir.height = 112;
+    const mctx = mir.getContext('2d');
+    mctx.translate(112, 0);
+    mctx.scale(-1, 1);
+    mctx.drawImage(face112, 0, 0);
+    const e2 = await embedFromCanvas(mir);
+
+    // Rata-rata lalu L2 norm
+    const avg = new Float32Array(e1.length);
+    for (let i = 0; i < e1.length; i++) avg[i] = (e1[i] + e2[i]) / 2;
+    return l2Normalize(avg);
   }
 
   function ambilBlobFoto() {
-    return new Promise((resolve, reject) => {
-      const video = $('video');
-      const w = video.videoWidth;
-      const h = video.videoHeight;
-      const c = document.createElement('canvas');
-      c.width = w;
-      c.height = h;
-      const ctx = c.getContext('2d');
-      ctx.translate(w, 0);
-      ctx.scale(-1, 1);
-      ctx.drawImage(video, 0, 0);
-      c.toBlob((b) => (b ? resolve(b) : reject(new Error('Gagal ambil foto'))), 'image/jpeg', 0.85);
+    return new Promise(async (resolve, reject) => {
+      try {
+        const full = await frameToCanvas();
+        full.toBlob((b) => (b ? resolve(b) : reject(new Error('Gagal ambil foto'))), 'image/jpeg', 0.9);
+      } catch (e) {
+        reject(e);
+      }
     });
   }
 
   async function ambilLokasi() {
     return new Promise((resolve, reject) => {
       if (!navigator.geolocation) {
-        reject(new Error('GPS tidak tersedia di perangkat ini'));
+        reject(new Error('GPS tidak tersedia'));
         return;
       }
       navigator.geolocation.getCurrentPosition(
@@ -232,7 +334,7 @@
     $('proses').classList.remove('hidden');
     try {
       const [embedding, fotoBlob, loc] = await Promise.all([
-        ekstrakEmbeddingDariVideo(),
+        ekstrakEmbeddingRobust(),
         ambilBlobFoto(),
         ambilLokasi(),
       ]);
@@ -242,7 +344,7 @@
       fd.append('lat', String(loc.lat));
       fd.append('lng', String(loc.lng));
       fd.append('embedding', JSON.stringify(embedding));
-      fd.append('mock_location', loc.mock ? '1' : '0');
+      fd.append('mock_location', '0');
       fd.append('foto', fotoBlob, 'presensi.jpg');
 
       const hasil = await api('checkin', { method: 'POST', body: fd });
@@ -263,28 +365,18 @@
 
     const d = hasil.detail || hasil;
     const lines = [];
-    if (d.dalam_radius !== undefined) {
-      lines.push(['Dalam radius', d.dalam_radius ? 'Ya' : 'Tidak']);
-    }
-    if (d.dalam_jam_kerja !== undefined) {
-      lines.push(['Dalam jam kerja', d.dalam_jam_kerja ? 'Ya' : 'Tidak']);
-    }
-    if (d.face_score !== undefined && d.face_score !== null) {
-      lines.push(['Kecocokan wajah', Math.round(d.face_score * 100) + '%']);
-    }
-    if (d.wajah_cocok !== undefined) {
-      lines.push(['Wajah cocok', d.wajah_cocok ? 'Ya' : 'Tidak']);
-    }
+    if (d.dalam_radius !== undefined) lines.push(['Dalam radius', d.dalam_radius ? 'Ya' : 'Tidak']);
+    if (d.dalam_jam_kerja !== undefined) lines.push(['Dalam jam kerja', d.dalam_jam_kerja ? 'Ya' : 'Tidak']);
+    if (d.face_score != null) lines.push(['Kecocokan wajah', Math.round(d.face_score * 100) + '%']);
+    if (d.wajah_cocok !== undefined) lines.push(['Wajah cocok', d.wajah_cocok ? 'Ya' : 'Tidak']);
     $('hasil-detail').innerHTML = lines
       .map(([k, v]) => '<div><span>' + k + '</span><strong>' + v + '</strong></div>')
       .join('');
-
     show('screen-hasil');
   }
 
   $('btn-selesai').onclick = () => show('screen-home');
 
-  // ── Start ──
   if (token && user && user.role === 'employee') {
     bukaHome();
   } else if (token && user && (user.role === 'admin' || user.role === 'developer')) {
