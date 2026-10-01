@@ -90,7 +90,7 @@
     $('nama-user').textContent = user.nama || user.username;
     $('jabatan-user').textContent = user.jabatan || '';
     const info = $('info-wajah-web');
-    if (info) info.textContent = 'Mode iPhone: wajah otomatis lolos 100%. Pastikan GPS & dalam radius klinik.';
+    if (info) info.textContent = '';
     const btnDaftar = $('btn-daftar-wajah');
     if (btnDaftar) btnDaftar.classList.add('hidden');
     show('screen-home');
@@ -233,7 +233,6 @@
     const lines = [];
     if (d.dalam_radius !== undefined) lines.push(['Dalam radius', d.dalam_radius ? 'Ya' : 'Tidak']);
     if (d.dalam_jam_kerja !== undefined) lines.push(['Dalam jam kerja', d.dalam_jam_kerja ? 'Ya' : 'Tidak']);
-    lines.push(['Kecocokan wajah', '100% (mode web)']);
     if (d.wajah_cocok !== undefined) lines.push(['Wajah cocok', d.wajah_cocok ? 'Ya' : 'Tidak']);
     $('hasil-detail').innerHTML = lines
       .map(([k, v]) => '<div><span>' + k + '</span><strong>' + v + '</strong></div>')
