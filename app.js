@@ -40,11 +40,19 @@
     if (options.body && !(options.body instanceof FormData) && typeof options.body === 'string') {
       headers['Content-Type'] = 'application/json';
     }
-    const res = await fetch(cfg.BASE_URL + path, {
-      method: options.method || 'GET',
-      headers,
-      body: options.body,
-    });
+    let res;
+    try {
+      res = await fetch(cfg.BASE_URL + path, {
+        method: options.method || 'GET',
+        headers,
+        body: options.body,
+      });
+    } catch (netErr) {
+      throw new Error(
+        'Tidak bisa terhubung ke server (' + ((netErr && netErr.message) || 'Failed to fetch') + '). ' +
+        'Periksa internet HP, matikan VPN, coba WiFi/data lain.'
+      );
+    }
     const text = await res.text();
     let data = null;
     try { data = text ? JSON.parse(text) : null; } catch (_) { data = { error: text }; }
@@ -52,11 +60,12 @@
     return data;
   }
 
-  // CDN model: jsDelivr sering "Load failed" di Safari iPhone → coba beberapa sumber + retry
+  // Model di-host lokal dulu (sama domain GitHub Pages) → tidak bergantung CDN
+  // Cadangan CDN jika folder model belum di-upload
   const MODEL_URLS = [
+    new URL('model/', window.location.href).href.replace(/\/?$/, ''),  // lokal: .../presensi-lmc-web/model
     'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/model',
     'https://unpkg.com/@vladmandic/face-api@1.7.13/model',
-    'https://cdn.jsdelivr.net/gh/vladmandic/face-api@1.7.13/model',
   ];
 
   async function loadModelsFrom(uri) {
@@ -70,7 +79,7 @@
   async function loadModels() {
     if (modelsReady) return;
     if (typeof faceapi === 'undefined') {
-      throw new Error('Library wajah gagal dimuat. Periksa koneksi internet lalu refresh halaman.');
+      throw new Error('Library wajah gagal dimuat. Refresh halaman / periksa internet.');
     }
     let lastErr = null;
     for (const uri of MODEL_URLS) {
@@ -78,19 +87,19 @@
         try {
           await loadModelsFrom(uri);
           modelsReady = true;
+          console.log('[face] model loaded from', uri);
           return;
         } catch (e) {
           lastErr = e;
-          // jeda singkat sebelum coba lagi
-          await new Promise((r) => setTimeout(r, 400 * attempt));
+          console.warn('[face] load fail', uri, attempt, e && e.message);
+          await new Promise((r) => setTimeout(r, 300 * attempt));
         }
       }
     }
-    const msg = (lastErr && lastErr.message) ? lastErr.message : 'Load failed';
+    const msg = (lastErr && lastErr.message) ? lastErr.message : 'Failed to fetch';
     throw new Error(
       'Model wajah gagal dimuat (' + msg + '). ' +
-      'Coba: 1) matikan WiFi lalu pakai data seluler (atau sebaliknya), ' +
-      '2) refresh halaman, 3) matikan Low Power Mode. Jika tetap gagal, coba Chrome di iPhone.'
+      'Pastikan folder model sudah di-upload ke GitHub, atau coba ganti WiFi/data seluler lalu refresh.'
     );
   }
 
@@ -290,7 +299,7 @@
         await startCamera('video');
         await loadModels();
       } catch (e) {
-        setError('cam-error', (e && e.message) || 'Kamera/model gagal. Izinkan kamera di Settings → Safari, pastikan internet stabil.');
+        setError('cam-error', (e && e.message) || 'Kamera/model gagal. Izinkan kamera & pastikan internet stabil.');
       }
     } catch (e) {
       alert('Gagal buka presensi: ' + ((e && e.message) || e));
