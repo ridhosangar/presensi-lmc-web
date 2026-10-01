@@ -33,10 +33,8 @@
   async function api(path, options = {}) {
     const headers = Object.assign({ apikey: cfg.ANON_KEY }, options.headers || {});
     if (token) headers['Authorization'] = 'Bearer ' + token;
-    // X-Client hanya untuk checkin (fungsi login/web-face belum allow header ini)
-    if (path === 'checkin' || (typeof path === 'string' && path.startsWith('checkin'))) {
-      headers['X-Client'] = 'web';
-    }
+    // Jangan kirim header X-Client — tidak ada di CORS Supabase
+    // (Safari akan "Load failed"). Mode web cukup lewat field FormData "client".
     if (options.body && !(options.body instanceof FormData) && typeof options.body === 'string') {
       headers['Content-Type'] = 'application/json';
     }
