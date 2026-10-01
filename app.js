@@ -52,15 +52,46 @@
     return data;
   }
 
+  // CDN model: jsDelivr sering "Load failed" di Safari iPhone → coba beberapa sumber + retry
+  const MODEL_URLS = [
+    'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/model',
+    'https://unpkg.com/@vladmandic/face-api@1.7.13/model',
+    'https://cdn.jsdelivr.net/gh/vladmandic/face-api@1.7.13/model',
+  ];
+
+  async function loadModelsFrom(uri) {
+    await Promise.all([
+      faceapi.nets.tinyFaceDetector.loadFromUri(uri),
+      faceapi.nets.faceLandmark68Net.loadFromUri(uri),
+      faceapi.nets.faceRecognitionNet.loadFromUri(uri),
+    ]);
+  }
+
   async function loadModels() {
     if (modelsReady) return;
-    if (typeof faceapi === 'undefined') throw new Error('face-api tidak termuat');
-    await Promise.all([
-      faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-      faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-      faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
-    ]);
-    modelsReady = true;
+    if (typeof faceapi === 'undefined') {
+      throw new Error('Library wajah gagal dimuat. Periksa koneksi internet lalu refresh halaman.');
+    }
+    let lastErr = null;
+    for (const uri of MODEL_URLS) {
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          await loadModelsFrom(uri);
+          modelsReady = true;
+          return;
+        } catch (e) {
+          lastErr = e;
+          // jeda singkat sebelum coba lagi
+          await new Promise((r) => setTimeout(r, 400 * attempt));
+        }
+      }
+    }
+    const msg = (lastErr && lastErr.message) ? lastErr.message : 'Load failed';
+    throw new Error(
+      'Model wajah gagal dimuat (' + msg + '). ' +
+      'Coba: 1) matikan WiFi lalu pakai data seluler (atau sebaliknya), ' +
+      '2) refresh halaman, 3) matikan Low Power Mode. Jika tetap gagal, coba Chrome di iPhone.'
+    );
   }
 
   async function cekStatusWajahWeb() {
@@ -259,7 +290,7 @@
         await startCamera('video');
         await loadModels();
       } catch (e) {
-        setError('cam-error', (e && e.message) || 'Kamera gagal. Izinkan kamera di Settings → Safari.');
+        setError('cam-error', (e && e.message) || 'Kamera/model gagal. Izinkan kamera di Settings → Safari, pastikan internet stabil.');
       }
     } catch (e) {
       alert('Gagal buka presensi: ' + ((e && e.message) || e));
