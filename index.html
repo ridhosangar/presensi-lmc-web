@@ -31,11 +31,11 @@
       </div>
       <button class="btn-outline" id="btn-logout" style="width:auto;padding:8px 14px;margin:0">Keluar</button>
     </div>
-    <p id="info-wajah-web" class="sub"></p>
-    <button type="button" class="btn-outline" id="btn-daftar-wajah">Daftarkan wajah web (wajib sekali)</button>
+    <p id="info-wajah-web" class="sub">Mode iPhone: wajah otomatis lolos 100%. Pastikan GPS dalam radius klinik.</p>
+    <button type="button" class="btn-outline hidden" id="btn-daftar-wajah" style="display:none">Daftarkan wajah web</button>
     <button type="button" class="btn-masuk" id="btn-masuk">Presensi Masuk</button>
     <button type="button" class="btn-pulang" id="btn-pulang">Presensi Pulang</button>
-    <small class="hint">Izinkan kamera &amp; lokasi. Wajah web terpisah dari foto Android.</small>
+    <small class="hint">Izinkan kamera &amp; lokasi di Safari. Buka di Safari (bukan WhatsApp).</small>
   </div>
 
   <div id="screen-daftar-wajah" class="card hidden">
@@ -64,7 +64,6 @@
     <button class="btn-primary" id="btn-selesai">Selesai</button>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/dist/face-api.js"></script>
   <script src="config.js"></script>
   <script src="app.js"></script>
 </body>

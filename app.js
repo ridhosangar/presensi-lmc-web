@@ -1,17 +1,18 @@
-/* Presensi LMC — web iPhone: face-api descriptor (bukan MobileFaceNet TFLite) */
+/* Presensi LMC — web iPhone
+ * Tanpa daftar wajah web, tanpa face-api.
+ * Wajah selalu diloloskan 100% di server (client=web).
+ * Validasi tetap: GPS radius + jam kerja.
+ */
 (function () {
   const cfg = window.APP_CONFIG;
   const STORAGE_TOKEN = 'lmc_token';
   const STORAGE_USER = 'lmc_user';
-  const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/model';
 
   let token = localStorage.getItem(STORAGE_TOKEN);
   let user = null;
   try { user = JSON.parse(localStorage.getItem(STORAGE_USER) || 'null'); } catch (_) {}
   let tipeAktif = 'masuk';
   let stream = null;
-  let modelsReady = false;
-  let hasWebFace = false;
 
   const $ = (id) => document.getElementById(id);
 
@@ -33,8 +34,6 @@
   async function api(path, options = {}) {
     const headers = Object.assign({ apikey: cfg.ANON_KEY }, options.headers || {});
     if (token) headers['Authorization'] = 'Bearer ' + token;
-    // Jangan kirim header X-Client — tidak ada di CORS Supabase
-    // (Safari akan "Load failed"). Mode web cukup lewat field FormData "client".
     if (options.body && !(options.body instanceof FormData) && typeof options.body === 'string') {
       headers['Content-Type'] = 'application/json';
     }
@@ -48,7 +47,7 @@
     } catch (netErr) {
       throw new Error(
         'Tidak bisa terhubung ke server (' + ((netErr && netErr.message) || 'Failed to fetch') + '). ' +
-        'Periksa internet HP, matikan VPN, coba WiFi/data lain.'
+        'Buka di Safari (bukan browser WhatsApp). Periksa internet, matikan VPN.'
       );
     }
     const text = await res.text();
@@ -58,73 +57,6 @@
     return data;
   }
 
-  // Model di-host lokal dulu (sama domain GitHub Pages) → tidak bergantung CDN
-  // Cadangan CDN jika folder model belum di-upload
-  const MODEL_URLS = [
-    new URL('model/', window.location.href).href.replace(/\/?$/, ''),  // lokal: .../presensi-lmc-web/model
-    'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/model',
-    'https://unpkg.com/@vladmandic/face-api@1.7.13/model',
-  ];
-
-  async function loadModelsFrom(uri) {
-    await Promise.all([
-      faceapi.nets.tinyFaceDetector.loadFromUri(uri),
-      faceapi.nets.faceLandmark68Net.loadFromUri(uri),
-      faceapi.nets.faceRecognitionNet.loadFromUri(uri),
-    ]);
-  }
-
-  async function loadModels() {
-    if (modelsReady) return;
-    if (typeof faceapi === 'undefined') {
-      throw new Error('Library wajah gagal dimuat. Refresh halaman / periksa internet.');
-    }
-    let lastErr = null;
-    for (const uri of MODEL_URLS) {
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        try {
-          await loadModelsFrom(uri);
-          modelsReady = true;
-          console.log('[face] model loaded from', uri);
-          return;
-        } catch (e) {
-          lastErr = e;
-          console.warn('[face] load fail', uri, attempt, e && e.message);
-          await new Promise((r) => setTimeout(r, 300 * attempt));
-        }
-      }
-    }
-    const msg = (lastErr && lastErr.message) ? lastErr.message : 'Failed to fetch';
-    throw new Error(
-      'Model wajah gagal dimuat (' + msg + '). ' +
-      'Pastikan folder model sudah di-upload ke GitHub, atau coba ganti WiFi/data seluler lalu refresh.'
-    );
-  }
-
-  async function cekStatusWajahWeb() {
-    try {
-      const r = await api('web-face', { method: 'GET' });
-      hasWebFace = !!r.has_web_face;
-    } catch (_) {
-      hasWebFace = false;
-    }
-    updateHomeFaceBtn();
-  }
-
-  function updateHomeFaceBtn() {
-    const btn = $('btn-daftar-wajah');
-    const info = $('info-wajah-web');
-    if (!btn) return;
-    if (hasWebFace) {
-      btn.textContent = 'Daftar ulang wajah web';
-      if (info) info.textContent = 'Wajah web sudah terdaftar. Siap presensi.';
-    } else {
-      btn.textContent = 'Daftarkan wajah web (wajib sekali)';
-      if (info) info.textContent = 'Sebelum presensi, daftar wajah web dulu (beda sistem dengan Android).';
-    }
-  }
-
-  // ── Login ──
   $('btn-login').onclick = async () => {
     setError('login-error', '');
     const username = $('username').value.trim();
@@ -146,7 +78,7 @@
       user = data.user;
       localStorage.setItem(STORAGE_TOKEN, token);
       localStorage.setItem(STORAGE_USER, JSON.stringify(user));
-      await bukaHome();
+      bukaHome();
     } catch (e) {
       setError('login-error', e.message || 'Login gagal');
     } finally {
@@ -154,12 +86,14 @@
     }
   };
 
-  async function bukaHome() {
+  function bukaHome() {
     $('nama-user').textContent = user.nama || user.username;
     $('jabatan-user').textContent = user.jabatan || '';
+    const info = $('info-wajah-web');
+    if (info) info.textContent = 'Mode iPhone: wajah otomatis lolos 100%. Pastikan GPS & dalam radius klinik.';
+    const btnDaftar = $('btn-daftar-wajah');
+    if (btnDaftar) btnDaftar.classList.add('hidden');
     show('screen-home');
-    loadModels().catch(() => {});
-    await cekStatusWajahWeb();
   }
 
   $('btn-logout').onclick = () => {
@@ -171,7 +105,6 @@
     show('screen-login');
   };
 
-  // ── Kamera ──
   async function startCamera(videoId) {
     stopCamera();
     stream = await navigator.mediaDevices.getUserMedia({
@@ -194,23 +127,13 @@
     });
   }
 
-  async function descriptorDariVideo(videoEl) {
-    await loadModels();
-    const det = await faceapi
-      .detectSingleFace(videoEl, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.4 }))
-      .withFaceLandmarks()
-      .withFaceDescriptor();
-    if (!det) throw new Error('Wajah tidak terdeteksi. Hadap kamera, cahaya cukup, wajah di tengah.');
-    return Array.from(det.descriptor);
-  }
-
   function ambilBlobDariVideo(videoEl) {
     return new Promise((resolve, reject) => {
       const c = document.createElement('canvas');
-      c.width = videoEl.videoWidth;
-      c.height = videoEl.videoHeight;
+      c.width = videoEl.videoWidth || 640;
+      c.height = videoEl.videoHeight || 480;
       c.getContext('2d').drawImage(videoEl, 0, 0);
-      c.toBlob((b) => (b ? resolve(b) : reject(new Error('Gagal foto'))), 'image/jpeg', 0.9);
+      c.toBlob((b) => (b ? resolve(b) : reject(new Error('Gagal foto'))), 'image/jpeg', 0.85);
     });
   }
 
@@ -219,51 +142,12 @@
       if (!navigator.geolocation) return reject(new Error('GPS tidak tersedia'));
       navigator.geolocation.getCurrentPosition(
         (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        (err) => reject(new Error('Gagal GPS: ' + err.message)),
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+        (err) => reject(new Error('Gagal GPS: ' + err.message + '. Izinkan lokasi di Settings → Safari.')),
+        { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
       );
     });
   }
 
-  // ── Daftar wajah web ──
-  $('btn-daftar-wajah').onclick = async () => {
-    setError('daftar-error', '');
-    show('screen-daftar-wajah');
-    try {
-      await startCamera('video-daftar');
-      await loadModels();
-    } catch (e) {
-      setError('daftar-error', e.message || 'Kamera gagal');
-    }
-  };
-
-  $('btn-cancel-daftar').onclick = () => {
-    stopCamera();
-    show('screen-home');
-  };
-
-  $('btn-simpan-wajah').onclick = async () => {
-    setError('daftar-error', '');
-    $('btn-simpan-wajah').disabled = true;
-    try {
-      const desc = await descriptorDariVideo($('video-daftar'));
-      await api('web-face', {
-        method: 'POST',
-        body: JSON.stringify({ descriptor: desc }),
-      });
-      hasWebFace = true;
-      stopCamera();
-      updateHomeFaceBtn();
-      show('screen-home');
-      alert('Wajah web berhasil disimpan. Silakan presensi.');
-    } catch (e) {
-      setError('daftar-error', e.message || 'Gagal simpan wajah');
-    } finally {
-      $('btn-simpan-wajah').disabled = false;
-    }
-  };
-
-  // ── Presensi ──
   function bindTap(id, fn) {
     const el = $(id);
     if (!el) return;
@@ -295,9 +179,8 @@
       show('screen-camera');
       try {
         await startCamera('video');
-        await loadModels();
       } catch (e) {
-        setError('cam-error', (e && e.message) || 'Kamera/model gagal. Izinkan kamera & pastikan internet stabil.');
+        setError('cam-error', (e && e.message) || 'Kamera gagal. Izinkan kamera di Settings → Safari.');
       }
     } catch (e) {
       alert('Gagal buka presensi: ' + ((e && e.message) || e));
@@ -315,17 +198,18 @@
     $('proses').classList.remove('hidden');
     try {
       const video = $('video');
-      const [descriptor, fotoBlob, loc] = await Promise.all([
-        descriptorDariVideo(video),
+      const [fotoBlob, loc] = await Promise.all([
         ambilBlobDariVideo(video),
         ambilLokasi(),
       ]);
+
+      const embedding = new Array(128).fill(0);
 
       const fd = new FormData();
       fd.append('tipe', tipeAktif);
       fd.append('lat', String(loc.lat));
       fd.append('lng', String(loc.lng));
-      fd.append('embedding', JSON.stringify(descriptor));
+      fd.append('embedding', JSON.stringify(embedding));
       fd.append('client', 'web');
       fd.append('mock_location', '0');
       fd.append('foto', fotoBlob, 'presensi.jpg');
@@ -349,15 +233,8 @@
     const lines = [];
     if (d.dalam_radius !== undefined) lines.push(['Dalam radius', d.dalam_radius ? 'Ya' : 'Tidak']);
     if (d.dalam_jam_kerja !== undefined) lines.push(['Dalam jam kerja', d.dalam_jam_kerja ? 'Ya' : 'Tidak']);
-    // Web iPhone: selalu tampilkan 100%
-    if (d.face_score != null) {
-      const skorTampil = (d.client_mode === 'web_force_100' || d.face_score >= 0.99)
-        ? 100
-        : Math.round(d.face_score * 100);
-      lines.push(['Kecocokan wajah', skorTampil + '%']);
-    }
+    lines.push(['Kecocokan wajah', '100% (mode web)']);
     if (d.wajah_cocok !== undefined) lines.push(['Wajah cocok', d.wajah_cocok ? 'Ya' : 'Tidak']);
-    if (d.client_mode) lines.push(['Mode', d.client_mode === 'web_force_100' ? 'Web 100%' : d.client_mode]);
     $('hasil-detail').innerHTML = lines
       .map(([k, v]) => '<div><span>' + k + '</span><strong>' + v + '</strong></div>')
       .join('');
@@ -366,7 +243,6 @@
 
   $('btn-selesai').onclick = () => show('screen-home');
 
-  // init
   if (token && user && user.role === 'employee') {
     bukaHome();
   } else {
